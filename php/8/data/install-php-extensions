@@ -21,7 +21,7 @@ if ! which docker-php-ext-configure >/dev/null || ! which docker-php-ext-enable 
 	exit 1
 fi
 
-IPE_VERSION=2.13.2
+IPE_VERSION=2.13.4
 
 # The versions of the libraries that we compile/download manually (for recent PHP versions/distros).
 # They can be overridden by setting the environment variables with the same names.
@@ -613,10 +613,11 @@ sortModulesToInstall() {
 	if test $PHP_MAJMIN_VERSION -le 506; then
 		checkRequiredModule event sockets
 	fi
-	# relay requires msgpack
-	checkRequiredModule relay msgpack
-	# relay requires igbinary
-	checkRequiredModule relay igbinary
+	# relay < 0.30.0 requires msgpack and igbinary (relay for PHP >= 8.6 is always newer)
+	if test $PHP_MAJMIN_VERSION -lt 806; then
+		checkRequiredModule relay msgpack
+		checkRequiredModule relay igbinary
+	fi
 	# pq requires raphf
 	checkRequiredModule pq raphf
 	# mailparse requires mbstring
@@ -1496,6 +1497,14 @@ buildRequiredPackageLists() {
 				buildRequiredPackageLists_persistent="$buildRequiredPackageLists_persistent lz4-libs zstd-libs"
 				if test $DISTRO_MAJMIN_VERSION -ge 317; then
 					buildRequiredPackageLists_persistent="$buildRequiredPackageLists_persistent $buildRequiredPackageLists_libssl"
+				fi
+				if test $PHP_THREADSAFE -eq 1; then
+					buildRequiredPackageLists_persistent="$buildRequiredPackageLists_persistent hiredis hiredis-ssl ck"
+				fi
+				;;
+			relay@debian)
+				if test $PHP_THREADSAFE -eq 1; then
+					buildRequiredPackageLists_persistent="$buildRequiredPackageLists_persistent libhiredis1.1.0 ^libck0(t64)?$"
 				fi
 				;;
 			saxon@alpine)
@@ -4518,6 +4527,10 @@ installRemoteModule() {
 					else
 						addConfigureOption enable-redis-msgpack no
 					fi
+					# Enable phpser serializer support?
+					if test $(compareVersions "${installRemoteModule_version:-$(resolvePeclStabilityVersion "$installRemoteModule_module" stable)}" 6.4.0) -ge 0; then
+						addConfigureOption enable-redis-phpser no
+					fi
 					# Enable lz4 compression?
 					addConfigureOption enable-redis-lz4 yes
 					# Use system liblz4?
@@ -4599,7 +4612,7 @@ installRemoteModule() {
 							;;
 					esac
 					installRemoteModule_regex="https://downloads.saxonica.com/SaxonC/${installRemoteModule_edition}/[0-9]+/SaxonC${installRemoteModule_edition}-$installRemoteModule_regexArchitecture-[0-9]+-[0-9]+-[0-9]+\.zip"
-					installRemoteModule_url="$(curl $IPE_CURL_FLAGS -sSLf https://www.saxonica.com/download/c.xml | grep -Eo "$installRemoteModule_regex" | head -n 1)"
+					installRemoteModule_url="$(curl $IPE_CURL_FLAGS -sSLf https://www.saxonica.com/src/download/c.xml | grep -Eo "$installRemoteModule_regex" | head -n 1)"
 					if test $? -ne 0 || test -z "$installRemoteModule_url"; then
 						printf "Failed to determine SaxonC download URL - Nothing matches\n%s\n" "$installRemoteModule_regex"
 						exit 1
